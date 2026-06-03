@@ -1,0 +1,348 @@
+// HSM Adapter: gRPC contract for hardware security module operations.
+//
+// This file defines the interface for the HSM Adapter. Each concrete
+// implementation (e.g., Atalla A1000 Payment HSM / Thales 10K) is provided by the ASE.
+
+// TODO Need to add meta fields like correlation id for tracing purposes.
+
+syntax = "proto3";
+
+package hsm.adapter.v1;
+
+option go_package = "github.com/interledger/hsm-adapter/proto/hsm-adapter/v1;hsmv1";
+
+// HsmAdapterService is the interface for the HSM Adapter.
+service HsmAdapterService {
+  // TranslatePin re-encrypts a DUKPT-encrypted PIN block under the
+  // outgoing PIN encryption working key (PWK).
+  rpc TranslatePin(TranslatePinRequest) returns (TranslatePinResponse);
+
+  // DukptDecrypt decrypts SRED-encrypted data using a DUKPT session key
+  // derived from the BDK and KSN.
+  rpc DukptDecrypt(DukptDecryptRequest) returns (DukptDecryptResponse);
+
+  // GenerateBdk generates a Base Derivation Key.
+  rpc GenerateBdk(GenerateBdkRequest) returns (GenerateBdkResponse);
+
+  // ExportWorkingKey exports a working key as a TR-31 key block
+  // encrypted under the Key Block Protection Key (KBPK).
+  rpc ExportWorkingKey(ExportWorkingKeyRequest) returns (ExportWorkingKeyResponse);
+
+  // ImportWorkingKey imports a PWK under ZMK during key exchange.
+  rpc ImportWorkingKey(ImportWorkingKeyRequest) returns (ImportWorkingKeyResponse);
+
+  // GenerateZmk generates a Zone Master Key under LMK.
+  rpc GenerateZmk(GenerateZmkRequest) returns (GenerateZmkResponse);
+
+  // ImportZmk imports a ZMK that has been wrapped under a KEK.
+  rpc ImportZmk(ImportZmkRequest) returns (ImportZmkResponse);
+
+  // GenerateKcv computes a Key Check Value for an existing key.
+  rpc GenerateKcv(GenerateKcvRequest) returns (GenerateKcvResponse);
+
+  // TranslateKey re-wraps a key from one KEK to another (e.g., ZMK to LMK).
+  rpc TranslateKey(TranslateKeyRequest) returns (TranslateKeyResponse);
+
+  // GenerateMac computes a MAC over data using a MAC working key.
+  rpc GenerateMac(GenerateMacRequest) returns (GenerateMacResponse);
+
+  // VerifyMac verifies a MAC over data using a MAC working key.
+  rpc VerifyMac(VerifyMacRequest) returns (VerifyMacResponse);
+
+  // EncryptData encrypts data under a working key (general-purpose data key).
+  rpc EncryptData(EncryptDataRequest) returns (EncryptDataResponse);
+
+  // DecryptData decrypts data under a working key (general-purpose data key).
+  rpc DecryptData(DecryptDataRequest) returns (DecryptDataResponse);
+}
+
+// ---------------------------------------------------------------------------
+// Shared enums
+// ---------------------------------------------------------------------------
+
+// KeyUsage identifies the intended use of a generated key.
+enum KeyUsage {
+  KEY_USAGE_UNSPECIFIED = 0; // Should gen an error in most cases (non-software).
+  KEY_USAGE_PIN_ENCRYPTION = 1;
+  KEY_USAGE_DATA = 2;
+}
+
+// KeyLength identifies 3DES key length.
+enum KeyLength {
+  KEY_LENGTH_UNSPECIFIED = 0; // Should gen an error in most cases (non-software).
+  KEY_LENGTH_SINGLE = 1;
+  KEY_LENGTH_DOUBLE = 2;
+}
+
+// MacAlgorithm identifies the MAC algorithm. ISO 9797-1 is the common family.
+enum MacAlgorithm {
+  MAC_ALGORITHM_UNSPECIFIED = 0;
+  MAC_ALGORITHM_ISO9797_1_M1 = 1; // CBC-MAC, padding method 1
+  MAC_ALGORITHM_ISO9797_1_M2 = 2; // CBC-MAC, padding method 2
+  MAC_ALGORITHM_ISO9797_1_M3 = 3; // Retail MAC (DES + TDES final)
+  MAC_ALGORITHM_CMAC_AES = 4;     // AES-CMAC (RFC 4493)
+  MAC_ALGORITHM_HMAC_SHA256 = 5;
+}
+
+// SymmetricCipher identifies the symmetric cipher / mode for data encryption.
+enum SymmetricCipher {
+  SYMMETRIC_CIPHER_UNSPECIFIED = 0;
+  SYMMETRIC_CIPHER_TDES_CBC = 1;
+  SYMMETRIC_CIPHER_TDES_ECB = 2;
+  SYMMETRIC_CIPHER_AES_CBC = 3;
+  SYMMETRIC_CIPHER_AES_ECB = 4;
+  SYMMETRIC_CIPHER_AES_GCM = 5;
+}
+
+// ---------------------------------------------------------------------------
+// Translate PIN
+// ---------------------------------------------------------------------------
+
+message TranslatePinRequest {
+  // RAW BDK under LMK or lookup alias
+  string bdk = 1;
+
+  // Outgoing PIN encryption working key (PWK) under LMK/MFK
+  string pwk = 2;
+
+  // 12 right-most digits of the PAN.
+  string pan = 3;
+
+  // Session DUKPT key KSN.
+  string ksn = 4;
+
+  // DUKPT-encrypted PIN block.
+  bytes pin_block = 5;
+}
+
+message TranslatePinResponse {
+  // PIN block encrypted under PWK.
+  bytes pin_block = 1;
+}
+
+// ---------------------------------------------------------------------------
+// DUKPT Decrypt
+// ---------------------------------------------------------------------------
+
+message DukptDecryptRequest {
+  // RAW BDK under LMK or lookup alias.
+  string bdk = 1;
+
+  // SRED-encrypted data.
+  bytes cipher_data = 2;
+
+  // Initialization vector.
+  bytes iv = 3;
+
+  // Session DUKPT key KSN.
+  string ksn = 4;
+}
+
+message DukptDecryptResponse {
+  // Decrypted SRED data.
+  bytes data = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Generate BDK (Base Derivation Key)
+// ---------------------------------------------------------------------------
+
+message GenerateBdkRequest {
+  // BDK key usage: PIN encryption or data.
+  KeyUsage key_usage = 1;
+
+  // Optional ZMK/KEK used for exporting the generated key (key token).
+  optional string key_exchange_key = 2;
+
+  // 3DES key length: single or double.
+  KeyLength key_length = 3;
+}
+
+message GenerateBdkResponse {
+  // BDK under LMK/MFK
+  string working_key = 1;
+
+  // BDK under ZMK/KEK (set only when key_exchange_key was provided).
+  optional string working_key_under_zmk = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Export Working Key (PWK)
+// ---------------------------------------------------------------------------
+
+message ExportWorkingKeyRequest {
+  // KBPK / ZMK under LMK that will wrap the exported key block (key token).
+  string kek_zmk = 1;
+
+  // Working key under LMK to be exported (key token).
+  string working_key_under_lmk = 2;
+
+  // Expected KCV of the working key (for verification).
+  optional string working_key_kcv = 3;
+}
+
+message ExportWorkingKeyResponse {
+  // Exported TR-31 key block (TR-31 version D, AES).
+  bytes working_key_tr31 = 1;
+
+  // KCV of the exported working key.
+  string working_key_kcv = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Import Working Key (PWK)
+// ---------------------------------------------------------------------------
+
+message ImportWorkingKeyRequest {
+  // ZMK under LMK that wraps the inbound TR-31 key block (key token).
+  string kek_zmk = 1;
+
+  // Working key in TR-31 key block format.
+  bytes working_key_tr31 = 2;
+
+  // Expected KCV of the working key (for verification).
+  string working_key_kcv = 3;
+}
+
+message ImportWorkingKeyResponse {
+  // KCV of the imported working key (under LMK).
+  string working_key_under_lmk_kcv = 1;
+
+  // Imported working key under LMK/MFK
+  string working_key_under_lmk = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Generate ZMK
+// ---------------------------------------------------------------------------
+
+message GenerateZmkRequest {
+  KeyLength key_length = 1;
+}
+
+message GenerateZmkResponse {
+  // Newly generated ZMK under LMK/MFK
+  string zmk_under_lmk = 1;
+  // Key Check Value of the new ZMK.
+  string kcv = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Import ZMK
+// ---------------------------------------------------------------------------
+
+message ImportZmkRequest {
+  // KEK under LMK that wraps the inbound ZMK.
+  string kek_under_lmk = 1;
+  // ZMK encrypted under the KEK.
+  bytes zmk_under_kek = 2;
+  // Expected KCV of the ZMK (for verification).
+  string expected_kcv = 3;
+}
+
+message ImportZmkResponse {
+  // Imported ZMK under LMK/MFK
+  string zmk_under_lmk = 1;
+  // KCV of the imported ZMK (matches expected_kcv on success).
+  string kcv = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Generate KCV
+// ---------------------------------------------------------------------------
+
+message GenerateKcvRequest {
+  // Key under LMK
+  string key_under_lmk = 1;
+}
+
+message GenerateKcvResponse {
+  // Key Check Value (typically 6 hex digits / 3 bytes).
+  string kcv = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Translate Key
+// ---------------------------------------------------------------------------
+
+message TranslateKeyRequest {
+  // Source KEK under LMK that currently wraps the key
+  string source_kek_under_lmk = 1;
+  // Target KEK under LMK to rewrap under
+  string target_kek_under_lmk = 2;
+  // Key encrypted under the source KEK.
+  bytes key_under_source_kek = 3;
+  // Optional expected KCV for verification after translation.
+  optional string expected_kcv = 4;
+}
+
+message TranslateKeyResponse {
+  // Key encrypted under the target KEK.
+  bytes key_under_target_kek = 1;
+  // KCV of the translated key.
+  string kcv = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Generate MAC / Verify MAC
+// ---------------------------------------------------------------------------
+
+message GenerateMacRequest {
+  // MAC working key under LMK
+  string mac_key_under_lmk = 1;
+  // Data to MAC.
+  bytes data = 2;
+  MacAlgorithm algorithm = 3;
+}
+
+message GenerateMacResponse {
+  // Computed MAC.
+  bytes mac = 1;
+}
+
+message VerifyMacRequest {
+  string mac_key_under_lmk = 1;
+  bytes data = 2;
+  bytes mac = 3;
+  MacAlgorithm algorithm = 4;
+}
+
+message VerifyMacResponse {
+  bool valid = 1;
+}
+
+// ---------------------------------------------------------------------------
+// EncryptData / DecryptData
+// ---------------------------------------------------------------------------
+
+message EncryptDataRequest {
+  // Working data key under LMK/MFK
+  string data_key_under_lmk = 1;
+  // Plaintext.
+  bytes data = 2;
+  SymmetricCipher cipher = 3;
+  // Initialization vector. Required for CBC / GCM modes.
+  optional bytes iv = 4;
+}
+
+message EncryptDataResponse {
+  // Ciphertext.
+  bytes cipher_data = 1;
+  // Tag for AEAD modes (e.g., GCM); empty otherwise.
+  optional bytes auth_tag = 2;
+}
+
+message DecryptDataRequest {
+  string data_key_under_lmk = 1;
+  // Ciphertext.
+  bytes cipher_data = 2;
+  SymmetricCipher cipher = 3;
+  optional bytes iv = 4;
+  // Tag for AEAD modes (e.g., GCM).
+  optional bytes auth_tag = 5;
+}
+
+message DecryptDataResponse {
+  // Plaintext.
+  bytes data = 1;
+}

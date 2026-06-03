@@ -1,0 +1,201 @@
+// HSM Issuer Adapter: gRPC contract for issuer-side hardware security module operations.
+//
+// This file defines the issuer-side interface for the HSM Adapter. Each concrete
+// implementation (e.g., Atalla A1000 Payment HSM / Thales 10K) is provided by the ASE.
+//
+// Operations that are specific to the card issuer (as opposed to acquirer-
+// or processor-side use). Scoped to CVV/CVV2/iCVV generation and verification,
+// PIN verification, and EMV ARQC/ARPC processing.
+
+syntax = "proto3";
+
+package hsm.adapter.issuer.v1;
+
+option go_package = "github.com/interledger/hsm-adapter/proto/hsm-adapter/issuer/v1;hsmissuerv1";
+
+// HsmIssuerAdapterService is the issuer-side interface for the HSM Adapter.
+service HsmIssuerAdapterService {
+  // GenerateCvv computes CVV / CVV2 / iCVV from PAN + expiry + service code.
+  rpc GenerateCvv(GenerateCvvRequest) returns (GenerateCvvResponse);
+
+  // VerifyCvv verifies a CVV / CVV2 / iCVV value.
+  rpc VerifyCvv(VerifyCvvRequest) returns (VerifyCvvResponse);
+
+  // VerifyPin verifies a cardholder PIN against an issuer-side reference
+  // (IBM 3624 PIN offset, or VISA PVV).
+  rpc VerifyPin(VerifyPinRequest) returns (VerifyPinResponse);
+
+  // VerifyArqcAndGenerateArpc verifies the card's ARQC and, if valid,
+  // generates the ARPC for the issuer authentication response. Used
+  // during online EMV transaction authorization.
+  rpc VerifyArqcAndGenerateArpc(VerifyArqcAndGenerateArpcRequest)
+      returns (VerifyArqcAndGenerateArpcResponse);
+}
+
+// CvvVariant distinguishes between CVV, CVV2 and iCVV.
+enum CvvVariant {
+  CVV_VARIANT_UNSPECIFIED = 0;
+  CVV_VARIANT_CVV = 1;   // Track-2 service code as-is
+  CVV_VARIANT_CVV2 = 2;  // Service code "000"
+  CVV_VARIANT_ICVV = 3;  // Service code "999"
+}
+
+message GenerateCvvRequest {
+  // CVK pair (CVK-A / CVK-B) under LMK
+  string cvk_a_under_lmk = 1;
+  string cvk_b_under_lmk = 2;
+  // PAN (full).
+  string pan = 3;
+  // Expiry date in YYMM.
+  string expiry_date = 4;
+  // Track-2 service code (3 digits). For CVV2 use "000", for iCVV use "999",
+  // or set the variant field and leave this empty.
+  string service_code = 5;
+  CvvVariant variant = 6;
+}
+
+message GenerateCvvResponse {
+  // CVV value (typically 3 digits).
+  string cvv = 1;
+}
+
+message VerifyCvvRequest {
+  string cvk_a_under_lmk = 1;
+  string cvk_b_under_lmk = 2;
+  string pan = 3;
+  string expiry_date = 4;
+  string service_code = 5;
+  string cvv = 6;
+  CvvVariant variant = 7;
+}
+
+message VerifyCvvResponse {
+  bool valid = 1;
+}
+
+// PinVerificationMethod identifies the PIN verification algorithm.
+enum PinVerificationMethod {
+  PIN_VERIFICATION_METHOD_UNSPECIFIED = 0;
+  PIN_VERIFICATION_METHOD_IBM_3624 = 1; // IBM 3624 (PIN offset)
+  PIN_VERIFICATION_METHOD_VISA_PVV = 2; // VISA PVV
+}
+
+message VerifyPinRequest {
+  // PIN Verification Key (PVK) under LMK
+  string pvk_under_lmk = 1;
+
+  // PIN encryption working key (PWK) the inbound PIN block is encrypted
+  // under
+  string pwk_under_lmk = 2;
+
+  // Encrypted PIN block (under PWK). ISO 9564 format.
+  bytes pin_block = 3;
+
+  // Cardholder PAN. For ISO 9564 PIN block formats that use the PAN
+  // (e.g., format 0 / 3), this is typically the 12 right-most digits
+  // excluding the check digit.
+  string pan = 4;
+
+  // Verification method (IBM 3624 / VISA PVV).
+  PinVerificationMethod method = 5;
+
+  // Reference value: PIN offset (IBM 3624) or PVV (VISA). Interpretation
+  // depends on `method`.
+  string reference = 6;
+
+  // IBM 3624 only: 16-digit decimalization table.
+  optional string decimalization_table = 7;
+
+  // VISA PVV only: 1-digit PIN Verification Key Indicator (PVKI).
+  optional string pvki = 8;
+}
+
+message VerifyPinResponse {
+  bool valid = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Verify ARQC & Generate ARPC - EMV online authorization cryptogram processing
+// ---------------------------------------------------------------------------
+
+// EmvScheme identifies the card scheme / derivation profile.
+enum EmvScheme {
+  EMV_SCHEME_UNSPECIFIED = 0;
+  EMV_SCHEME_EMV = 1;
+  EMV_SCHEME_VISA = 2;
+  EMV_SCHEME_MASTERCARD = 3;
+}
+
+// ArpcMethod identifies the ARPC generation method/profile.
+enum ArpcMethod {
+  ARPC_METHOD_UNSPECIFIED = 0;
+  ARPC_METHOD_1 = 1; // Common EMV method using ARQC and ARC.
+  ARPC_METHOD_2 = 2; // Alternative method used by some schemes/profiles.
+}
+
+// CryptogramFailureReason captures structured failure detail when ARQC
+// verification fails or ARPC generation cannot complete.
+enum CryptogramFailureReason {
+  CRYPTOGRAM_FAILURE_REASON_UNSPECIFIED = 0;
+  CRYPTOGRAM_FAILURE_REASON_NONE = 1;
+  CRYPTOGRAM_FAILURE_REASON_INVALID_ARQC = 2;
+  CRYPTOGRAM_FAILURE_REASON_KEY_NOT_FOUND = 3;
+  CRYPTOGRAM_FAILURE_REASON_INVALID_INPUT_DATA = 4;
+  CRYPTOGRAM_FAILURE_REASON_UNSUPPORTED_SCHEME = 5;
+}
+
+message VerifyArqcAndGenerateArpcRequest {
+  // Key reference for the ICC master key / IMK-AC / MDK-AC inside the HSM.
+  string key_id = 1;
+
+  // Scheme / derivation profile (EMV, VISA, MASTERCARD).
+  EmvScheme scheme = 2;
+
+  // PAN and PAN sequence number, typically needed for ICC session key
+  // derivation.
+  string pan = 3;
+  string pan_sequence_number = 4;
+
+  // Application Transaction Counter, EMV tag 9F36.
+  bytes atc = 5;
+
+  // ARQC from the card, EMV tag 9F26.
+  bytes arqc = 6;
+
+  // Concatenated CDOL1 data used by the card to generate the ARQC.
+  // Exact byte sequence as built from the CDOL1 tag list (not TLV
+  // unless the HSM expects TLV).
+  bytes cdol1_data = 7;
+
+  // Authorization Response Code, EMV tag 8A, e.g. "00", "05", "85".
+  string authorization_response_code = 8;
+
+  // ARPC generation method/profile.
+  ArpcMethod arpc_method = 9;
+
+  // Optional values depending on scheme/HSM/profile.
+  optional bytes unpredictable_number = 10;          // 9F37
+  optional bytes issuer_application_data = 11;       // 9F10
+  optional bytes terminal_verification_results = 12; // 95
+}
+
+message VerifyArqcAndGenerateArpcResponse {
+  // True if the ARQC matched the value derived from the supplied inputs.
+  bool arqc_valid = 1;
+
+  // Raw ARPC value.
+  bytes arpc = 2;
+
+  // Issuer Authentication Data, EMV tag 91. Usually ARPC alone or
+  // ARPC + ARC / proprietary bytes depending on scheme.
+  bytes issuer_authentication_data = 3;
+
+  // Optional ready-to-place TLV: tag 91 + length + value.
+  bytes issuer_authentication_data_tlv = 4;
+
+  // KCV of the key used (for verification / audit).
+  string key_check_value = 5;
+
+  // Structured failure reason; CRYPTOGRAM_FAILURE_REASON_NONE on success.
+  CryptogramFailureReason failure_reason = 10;
+}
