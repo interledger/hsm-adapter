@@ -9,7 +9,7 @@ syntax = "proto3";
 
 package hsm.adapter.v1;
 
-option go_package = "github.com/interledger/hsm-adapter/proto/hsm-adapter/v1;hsmv1";
+option go_package = "github.com/interledger/hsm-adapter/proto/hsm/adapter/v1;hsmv1";
 
 // HsmAdapterService is the interface for the HSM Adapter.
 service HsmAdapterService {
