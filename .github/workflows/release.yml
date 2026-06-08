@@ -1,17 +1,14 @@
-name: Publish
+name: Release
 
 on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
 jobs:
-  buf-publish:
-    name: Publish to Buf Schema Registry
+  release:
+    name: Publish release
     runs-on: ubuntu-latest
 
     steps:
@@ -24,7 +21,7 @@ jobs:
           token: ${{ secrets.BUF_TOKEN }}
           push: true
           push_create_visibility: public
-          lint: true
+          lint: false
           format: false
           breaking: false
           archive: false

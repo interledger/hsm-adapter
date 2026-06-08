@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  call-lint:
+    name: Lint
+    uses: ./.github/workflows/lint.yml
+
+  call-build:
+    name: Build
+    uses: ./.github/workflows/build.yml
+
+  call-release:
+    name: Release
+    needs:
+      - call-lint
+      - call-build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/release.yml
+    secrets: inherit
