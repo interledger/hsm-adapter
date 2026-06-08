@@ -21,10 +21,16 @@ service HsmAdapterService {
   // derived from the BDK and KSN.
   rpc DukptDecrypt(DukptDecryptRequest) returns (DukptDecryptResponse);
 
-  // GenerateBdk generates a Base Derivation Key.
+  // GenerateBdk generates a Base Derivation Key (DUKPT BDK).
   rpc GenerateBdk(GenerateBdkRequest) returns (GenerateBdkResponse);
 
-  // ExportWorkingKey exports a working key as a TR-31 key block
+  // DeriveIpek derives the Initial PIN Encryption Key (IPEK) from a BDK and KSN.
+  rpc DeriveIpek(DeriveIpekRequest) returns (DeriveIpekResponse);
+
+  // GeneratePwk generates a PIN Working Key under LMK.
+  rpc GeneratePwk(GeneratePwkRequest) returns (GeneratePwkResponse);
+
+  // ExportWorkingKey exports a working key (e.g. PWK) as a TR-31 key block
   // encrypted under the Key Block Protection Key (KBPK).
   rpc ExportWorkingKey(ExportWorkingKeyRequest) returns (ExportWorkingKeyResponse);
 
@@ -82,6 +88,16 @@ enum MacAlgorithm {
   MAC_ALGORITHM_ISO9797_1_M3 = 3; // Retail MAC (DES + TDES final)
   MAC_ALGORITHM_CMAC_AES = 4;     // AES-CMAC (RFC 4493)
   MAC_ALGORITHM_HMAC_SHA256 = 5;
+}
+
+// Tr31Version selects the TR-31 key block version / wrapping algorithm for
+// key export operations.
+//   Version D → AES KBPK
+//   Version A/B/C → 3DES KBPK
+enum Tr31Version {
+  TR31_VERSION_UNSPECIFIED = 0;
+  TR31_VERSION_D = 1;   // AES KBPK
+  TR31_VERSION_ABC = 2; // 3DES KBPK (A, B, or C negotiated by HSM)
 }
 
 // SymmetricCipher identifies the symmetric cipher / mode for data encryption.
@@ -167,6 +183,46 @@ message GenerateBdkResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Derive IPEK (Initial PIN Encryption Key)
+// ---------------------------------------------------------------------------
+
+message DeriveIpekRequest {
+  // BDK under LMK or lookup alias.
+  string bdk = 1;
+
+  // 10-byte Key Serial Number (KSN), hex-encoded.
+  string ksn = 2;
+}
+
+message DeriveIpekResponse {
+  // Derived IPEK under LMK.
+  string ipek_under_lmk = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Generate PWK (PIN Working Key)
+// ---------------------------------------------------------------------------
+
+message GeneratePwkRequest {
+  // 3DES key length: single or double.
+  KeyLength key_length = 1;
+
+  // Optional ZMK/KEK used for simultaneously exporting the key.
+  optional string key_exchange_key = 2;
+}
+
+message GeneratePwkResponse {
+  // PWK under LMK/MFK.
+  string pwk_under_lmk = 1;
+
+  // KCV of the generated PWK.
+  string kcv = 2;
+
+  // PWK under ZMK/KEK (set only when key_exchange_key was provided).
+  optional string pwk_under_zmk = 3;
+}
+
+// ---------------------------------------------------------------------------
 // Export Working Key (PWK)
 // ---------------------------------------------------------------------------
 
@@ -179,6 +235,9 @@ message ExportWorkingKeyRequest {
 
   // Expected KCV of the working key (for verification).
   optional string working_key_kcv = 3;
+
+  // TR-31 version / wrapping algorithm.
+  Tr31Version tr31_version = 4;
 }
 
 message ExportWorkingKeyResponse {
