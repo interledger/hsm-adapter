@@ -1,0 +1,14 @@
+version: v2
+
+plugins:
+  # Go — protoc-gen-go
+  - remote: buf.build/protocolbuffers/go
+    out: generated/go
+    opt:
+      - paths=source_relative
+
+  # Go — protoc-gen-go-grpc
+  - remote: buf.build/grpc/go
+    out: generated/go
+    opt:
+      - paths=source_relative
