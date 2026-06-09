@@ -9,9 +9,9 @@
 
 syntax = "proto3";
 
-package hsm.adapter.issuer.v1;
+package interledger.hsm.adapter.issuer.v1;
 
-option go_package = "github.com/interledger/hsm-adapter/proto/hsm/adapter/issuer/v1;hsmissuerv1";
+option go_package = "github.com/interledger/hsm-adapter/proto/interledger/hsm/adapter/issuer/v1;hsmissuerv1";
 
 // HsmIssuerAdapterService is the issuer-side interface for the HSM Adapter.
 service HsmIssuerAdapterService {
