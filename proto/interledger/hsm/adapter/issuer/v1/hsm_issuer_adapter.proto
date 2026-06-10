@@ -21,6 +21,16 @@ service HsmIssuerAdapterService {
   // VerifyCvv verifies a CVV / CVV2 / iCVV value.
   rpc VerifyCvv(VerifyCvvRequest) returns (VerifyCvvResponse);
 
+  // GeneratePin generates a new cardholder PIN (random or IBM 3624 derived),
+  // returns it as an encrypted PIN block under the supplied PWK, and
+  // optionally computes the PIN verification value (offset or PVV).
+  rpc GeneratePin(GeneratePinRequest) returns (GeneratePinResponse);
+
+  // PrintPin re-encrypts an existing PIN block under a PIN Mailer Key (PMK)
+  // so that the cleartext PIN can be delivered to a PIN printing/mailing
+  // system without ever leaving the HSM in the clear.
+  rpc PrintPin(PrintPinRequest) returns (PrintPinResponse);
+
   // VerifyPin verifies a cardholder PIN against an issuer-side reference
   // (IBM 3624 PIN offset, or VISA PVV).
   rpc VerifyPin(VerifyPinRequest) returns (VerifyPinResponse);
@@ -72,6 +82,90 @@ message VerifyCvvRequest {
 message VerifyCvvResponse {
   bool valid = 1;
 }
+
+// ---------------------------------------------------------------------------
+// Generate PIN
+// ---------------------------------------------------------------------------
+
+// PinGenerationMethod identifies the algorithm used to produce the PIN.
+enum PinGenerationMethod {
+  PIN_GENERATION_METHOD_UNSPECIFIED = 0;
+  PIN_GENERATION_METHOD_RANDOM = 1;      // Cryptographically random PIN.
+  PIN_GENERATION_METHOD_IBM_3624 = 2;    // IBM 3624 natural PIN derived from PAN.
+}
+
+message GeneratePinRequest {
+  // PIN Generation Key (PGK) under LMK used to derive or encrypt the PIN.
+  string pgk_under_lmk = 1;
+
+  // PIN Working Key (PWK) under LMK; the output PIN block is encrypted under
+  // this key for transport to the caller.
+  string pwk_under_lmk = 2;
+
+  // Cardholder PAN (full). Required for IBM 3624 derivation and for PIN block
+  // formats that embed PAN digits (e.g. ISO 9564 format 0 / 3).
+  string pan = 3;
+
+  // Desired PIN length (4–12 digits). Ignored for IBM 3624 (length is derived).
+  uint32 pin_length = 4;
+
+  // PIN generation method.
+  PinGenerationMethod method = 5;
+
+  // IBM 3624 only: 16-digit decimalization table (hex).
+  optional string decimalization_table = 6;
+
+  // PIN Verification Key (PVK) under LMK. When set, the response includes the
+  // verification value (offset or PVV) ready for card-personalisation.
+  optional string pvk_under_lmk = 7;
+
+  // VISA PVV only: 1-digit PIN Verification Key Indicator (PVKI).
+  optional string pvki = 8;
+}
+
+message GeneratePinResponse {
+  // Encrypted PIN block (ISO 9564) under PWK.
+  bytes pin_block = 1;
+
+  // IBM 3624 PIN offset. Populated when pvk_under_lmk was supplied and method
+  // is IBM_3624.
+  optional string pin_offset = 2;
+
+  // VISA PVV. Populated when pvk_under_lmk was supplied and method is RANDOM
+  // with a VISA PVV key.
+  optional string pvv = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Print PIN
+// ---------------------------------------------------------------------------
+
+message PrintPinRequest {
+  // PIN Working Key (PWK) under LMK that currently encrypts the inbound PIN
+  // block.
+  string pwk_under_lmk = 1;
+
+  // Encrypted PIN block (ISO 9564) under PWK.
+  bytes pin_block = 2;
+
+  // Cardholder PAN. Used by ISO 9564 PIN block formats that embed PAN digits.
+  string pan = 3;
+
+  // PIN Mailer Key (PMK) under LMK. The HSM re-encrypts the PIN under this
+  // key before returning it, so the plaintext PIN is never exposed outside the
+  // HSM boundary.
+  string pmk_under_lmk = 4;
+}
+
+message PrintPinResponse {
+  // PIN block re-encrypted under PMK, ready for delivery to the PIN
+  // printing / mailing system.
+  bytes pin_block_under_pmk = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Verify PIN
+// ---------------------------------------------------------------------------
 
 // PinVerificationMethod identifies the PIN verification algorithm.
 enum PinVerificationMethod {
