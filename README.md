@@ -6,10 +6,10 @@ Each concrete implementation (e.g. Atalla AT1000, Thales 10K) is provided by the
 
 ## Services
 
-| Proto                   | Service                   | Description                                                   |
-|-------------------------|---------------------------|---------------------------------------------------------------|
-| `hsm/adapter/v1`        | `HsmAdapterService`       | Core key-management and cryptographic operations              |
-| `hsm/adapter/issuer/v1` | `HsmIssuerAdapterService` | Issuer-side operations: CVV, PIN verification, EMV ARQC/ARPC  |
+| Proto                     | Service                     | Description                                                   |
+|---------------------------|-----------------------------|---------------------------------------------------------------|
+| `hsm/adapter/merchant/v1` | `HSMMerchantAdapterService` | Merchant-side PIN, DUKPT, key-management, and data operations |
+| `hsm/adapter/issuer/v1`   | `HsmIssuerAdapterService`   | Issuer-side operations: CVV, PIN verification, EMV ARQC/ARPC  |
 
 ## Prerequisites
 
@@ -46,13 +46,15 @@ See `buf.gen.yaml` for the configured output plugins (Go, TypeScript, etc.).
 ```
 hsm-adapter/
 ├── proto/
-│   └── hsm/
-│       ├── adapter/
-│       │   └── v1/
-│       │       └── hsm_adapter.proto
-│       └── adapter/issuer/
-│           └── v1/
-│               └── hsm_issuer_adapter.proto
+│   └── interledger/
+│       └── hsm/
+│           └── adapter/
+│               ├── issuer/
+│               │   └── v1/
+│               │       └── hsm_issuer_adapter.proto
+│               └── merchant/
+│                   └── v1/
+│                       └── hsm_adapter.proto
 ├── buf.yaml
 ├── buf.gen.yaml
 ├── .github/

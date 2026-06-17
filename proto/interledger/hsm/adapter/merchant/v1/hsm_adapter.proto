@@ -1,18 +1,18 @@
-// HSM Adapter: gRPC contract for hardware security module operations.
+// HSM Merchant Adapter: gRPC contract for merchant-side hardware security module operations.
 //
-// This file defines the interface for the HSM Adapter. Each concrete
+// This file defines the merchant-side interface for the HSM Adapter. Each concrete
 // implementation (e.g., Atalla A1000 Payment HSM / Thales 10K) is provided by the ASE.
 
 // TODO Need to add meta fields like correlation id for tracing purposes.
 
 syntax = "proto3";
 
-package interledger.hsm.adapter.v1;
+package interledger.hsm.adapter.merchant.v1;
 
-option go_package = "github.com/interledger/hsm-adapter/proto/interledger/hsm/adapter/v1;hsmv1";
+option go_package = "github.com/interledger/hsm-adapter/proto/interledger/hsm/adapter/merchant/v1;hsmmerchantv1";
 
-// HsmAdapterService is the interface for the HSM Adapter.
-service HsmAdapterService {
+// HSMMerchantAdapterService is the merchant-side interface for the HSM Adapter.
+service HSMMerchantAdapterService {
   // TranslatePin re-encrypts a DUKPT-encrypted PIN block under the
   // outgoing PIN encryption working key (PWK).
   rpc TranslatePin(TranslatePinRequest) returns (TranslatePinResponse);
