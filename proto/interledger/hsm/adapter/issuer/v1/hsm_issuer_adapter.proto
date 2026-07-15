@@ -26,10 +26,11 @@ service HsmIssuerAdapterService {
   // optionally computes the PIN verification value (offset or PVV).
   rpc GeneratePin(GeneratePinRequest) returns (GeneratePinResponse);
 
-  // ChangePin verifies an existing PIN block and, if valid, returns a new
-  // encrypted PIN block under the supplied PWK. Used for cardholder PIN change.
+  // ChangePin changes the cardholder PIN stored in the HSM. The new PIN is
+  // supplied encrypted under the client-hsm key (PMK). The HSM returns the
+  // new PIN block encrypted under the PWK for storage in issuer-api.
   rpc ChangePin(ChangePinRequest) returns (ChangePinResponse);
-  
+
   // VerifyPin verifies a cardholder PIN against an issuer-side reference
   // (IBM 3624 PIN offset, or VISA PVV).
   rpc VerifyPin(VerifyPinRequest) returns (VerifyPinResponse);
@@ -39,6 +40,9 @@ service HsmIssuerAdapterService {
   // during online EMV transaction authorization.
   rpc VerifyArqcAndGenerateArpc(VerifyArqcAndGenerateArpcRequest)
       returns (VerifyArqcAndGenerateArpcResponse);
+
+  // GenerateKeyPair generates a new asymmetric key pair (RSA or ECC) and returns the public key.
+  rpc GenerateKeyPair(GenerateKeyPairRequest) returns (GenerateKeyPairResponse);
 }
 
 // CvvVariant distinguishes between CVV, CVV2 and iCVV.
@@ -144,8 +148,9 @@ message ChangePinRequest {
   // Encrypted PIN block stored by issuer-api
   bytes valid_pin_block= 1;
 
-  // Encrypted PIN under client-hsm key (PMK). This is the new PIN to be stored in the HSM.
-  bytes pin_under_client_key = 2; 
+  // Encrypted PIN block under client-hsm key.
+  // This is the new PIN to be stored in the HSM.
+  bytes pin_block_under_client_key = 2;
 
   // Cardholder PAN. Used by ISO 9564 PIN block formats that embed PAN digits.
   string pan = 3;
