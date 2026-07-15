@@ -140,6 +140,7 @@ message GeneratePinResponse {
 // ---------------------------------------------------------------------------
  
 message ChangePinRequest {
+
   // Encrypted PIN block stored by issuer-api
   bytes valid_pin_block= 1;
 
@@ -151,7 +152,7 @@ message ChangePinRequest {
 }
 
 message ChangePinResponse {
-  // True if the two PIN blocks match (i.e., the PIN was successfully verified).
+  // New PIN block encrypted under PWK.
   bytes new_valid_pin_block = 1;
 }
 
@@ -179,8 +180,8 @@ message VerifyPinRequest {
   // This PIN block is generated in the POS terminal and translated by the merchant-api using pwk to be verified against the stored pin block
   bytes entered_pin_block = 4;
 
+  // PIN Working Key (PWK) under LMK. The entered PIN block is encrypted under this key.
   bytes pwk = 5;
-
 }
 
 message VerifyPinResponse {
@@ -264,7 +265,7 @@ message VerifyArqcAndGenerateArpcResponse {
   bytes issuer_authentication_data = 3;
 
   // Optional ready-to-place TLV: tag 91 + length + value.
-  bytes issuer_authentication_data_tlv = 4;
+  optional bytes issuer_authentication_data_tlv = 4;
 
   // KCV of the key used (for verification / audit).
   string key_check_value = 5;
@@ -272,3 +273,49 @@ message VerifyArqcAndGenerateArpcResponse {
   // Structured failure reason; CRYPTOGRAM_FAILURE_REASON_NONE on success.
   CryptogramFailureReason failure_reason = 10;
 }
+
+
+// Generate key pair
+// store private key encrypted under LMK and a tag generated using the pubkey 
+// send the public key
+
+// ---------------------------------------------------------------------------
+// Generate key pair
+// ---------------------------------------------------------------------------
+
+message GenerateKeyPairRequest {
+  // Key usage or key header
+  //To generate an RSA key under the 3DES MFK, send the header byte 1 value for the RSA-AKB.
+  //To generate an RSA or ECC key under the AES MFK, specify the header of the private key.
+  string key_usage_or_header = 1;
+
+  // Public exponent for RSA (e.g., "010001" for 65537), it must be less than the value of the modulus, 
+  //or constant indicating the curve name for ECC (e.g., "2B81040023" for p-521).
+  string public_exponent_or_curve = 2;
+
+  // Size of the modulus in bits for RSA (e.g., 2048, 3072, 4096), 
+  // empty for ECC
+  string size_modulus = 3;
+
+  // Key slot for the generated key pair on the RSA table.
+  // ECC dont need this parameter
+  optional string key_slot = 4;
+
+}
+
+message GenerateKeyPairResponse {
+  // Public key in AKB format.
+  bytes public_key = 1;
+
+  // Private key AKB format.
+  bytes private_key = 2;
+
+  // leftmost eight hexadecimal characters of either SHA-1 of the private key 
+  // or SHA-256 of the public key, depending on the key type.
+  string check_digits = 3;
+
+  // Optional key slot for the generated private key on the RSA table.
+  optional string key_slot = 4;
+
+}
+
