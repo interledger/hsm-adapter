@@ -42,7 +42,7 @@ service HsmIssuerAdapterService {
       returns (VerifyArqcAndGenerateArpcResponse);
 
   // GenerateKeyPair generates a new asymmetric key pair (RSA or ECC) and returns the public key.
-  rpc GenerateKeyPair(GenerateKeyPairRequest) returns (GenerateKeyPairResponse);
+  rpc GenerateRSAKeyPair(GenerateRSAKeyPairRequest) returns (GenerateRSAKeyPairResponse);
 }
 
 // CvvVariant distinguishes between CVV, CVV2 and iCVV.
@@ -288,12 +288,7 @@ message VerifyArqcAndGenerateArpcResponse {
 // Generate key pair
 // ---------------------------------------------------------------------------
 
-message GenerateKeyPairRequest {
-  // Key usage or key header
-  //To generate an RSA key under the 3DES MFK, send the header byte 1 value for the RSA-AKB.
-  //To generate an RSA or ECC key under the AES MFK, specify the header of the private key.
-  string key_usage_or_header = 1;
-
+message GenerateRSAKeyPairRequest {
   // Public exponent for RSA (e.g., "010001" for 65537), it must be less than the value of the modulus, 
   //or constant indicating the curve name for ECC (e.g., "2B81040023" for p-521).
   string public_exponent_or_curve = 2;
@@ -301,14 +296,9 @@ message GenerateKeyPairRequest {
   // Size of the modulus in bits for RSA (e.g., 2048, 3072, 4096), 
   // empty for ECC
   string size_modulus = 3;
-
-  // Key slot for the generated key pair on the RSA table.
-  // ECC dont need this parameter
-  optional string key_slot = 4;
-
 }
 
-message GenerateKeyPairResponse {
+message GenerateRSAKeyPairResponse {
   // Public key in AKB format.
   bytes public_key = 1;
 
