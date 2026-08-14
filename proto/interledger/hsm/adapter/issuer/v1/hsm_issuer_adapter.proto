@@ -26,10 +26,10 @@ service HsmIssuerAdapterService {
   // optionally computes the PIN verification value (offset or PVV).
   rpc GeneratePin(GeneratePinRequest) returns (GeneratePinResponse);
 
-  // PrintPin re-encrypts an existing PIN block under a PIN Mailer Key (PMK)
-  // so that the cleartext PIN can be delivered to a PIN printing/mailing
-  // system without ever leaving the HSM in the clear.
-  rpc PrintPin(PrintPinRequest) returns (PrintPinResponse);
+  // ChangePin changes the cardholder PIN stored in the HSM. The new PIN is
+  // supplied encrypted under the client-hsm key (PMK). The HSM returns the
+  // new PIN block encrypted under the PWK for storage in issuer-api.
+  rpc ChangePin(ChangePinRequest) returns (ChangePinResponse);
 
   // VerifyPin verifies a cardholder PIN against an issuer-side reference
   // (IBM 3624 PIN offset, or VISA PVV).
@@ -40,6 +40,9 @@ service HsmIssuerAdapterService {
   // during online EMV transaction authorization.
   rpc VerifyArqcAndGenerateArpc(VerifyArqcAndGenerateArpcRequest)
       returns (VerifyArqcAndGenerateArpcResponse);
+
+  // GenerateKeyPair generates a new asymmetric key pair (RSA or ECC) and returns the public key.
+  rpc GenerateRSAKeyPair(GenerateRSAKeyPairRequest) returns (GenerateRSAKeyPairResponse);
 }
 
 // CvvVariant distinguishes between CVV, CVV2 and iCVV.
@@ -137,30 +140,25 @@ message GeneratePinResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Print PIN
+// Change PIN
 // ---------------------------------------------------------------------------
+ 
+message ChangePinRequest {
 
-message PrintPinRequest {
-  // PIN Working Key (PWK) under LMK that currently encrypts the inbound PIN
-  // block.
-  string pwk_under_lmk = 1;
+  // Encrypted PIN block stored by issuer-api
+  bytes valid_pin_block= 1;
 
-  // Encrypted PIN block (ISO 9564) under PWK.
-  bytes pin_block = 2;
+  // Encrypted PIN block under client-hsm key.
+  // This is the new PIN to be stored in the HSM.
+  bytes pin_block_under_client_key = 2;
 
   // Cardholder PAN. Used by ISO 9564 PIN block formats that embed PAN digits.
   string pan = 3;
-
-  // PIN Mailer Key (PMK) under LMK. The HSM re-encrypts the PIN under this
-  // key before returning it, so the plaintext PIN is never exposed outside the
-  // HSM boundary.
-  string pmk_under_lmk = 4;
 }
 
-message PrintPinResponse {
-  // PIN block re-encrypted under PMK, ready for delivery to the PIN
-  // printing / mailing system.
-  bytes pin_block_under_pmk = 1;
+message ChangePinResponse {
+  // New PIN block encrypted under PWK.
+  bytes new_valid_pin_block = 1;
 }
 
 // ---------------------------------------------------------------------------
@@ -174,34 +172,21 @@ enum PinVerificationMethod {
   PIN_VERIFICATION_METHOD_VISA_PVV = 2; // VISA PVV
 }
 
-message VerifyPinRequest {
-  // PIN Verification Key (PVK) under LMK
-  string pvk_under_lmk = 1;
+message VerifyPinRequest { 
 
-  // PIN encryption working key (PWK) the inbound PIN block is encrypted
-  // under
-  string pwk_under_lmk = 2;
+  // PIN Block stored by issuer-api, to be verified against the new PIN block
+  bytes valid_pin_block = 3;
 
-  // Encrypted PIN block (under PWK). ISO 9564 format.
-  bytes pin_block = 3;
+  // PIN Block key (PBK) under LMK. The PIN block to be verified is encrypted under this key. 
+  // PBK is stored encrypted in issuer-api
+  bytes pbk_under_lmk = 1;
 
-  // Cardholder PAN. For ISO 9564 PIN block formats that use the PAN
-  // (e.g., format 0 / 3), this is typically the 12 right-most digits
-  // excluding the check digit.
-  string pan = 4;
+  // PIN block under PWK. 
+  // This PIN block is generated in the POS terminal and translated by the merchant-api using pwk to be verified against the stored pin block
+  bytes entered_pin_block = 4;
 
-  // Verification method (IBM 3624 / VISA PVV).
-  PinVerificationMethod method = 5;
-
-  // Reference value: PIN offset (IBM 3624) or PVV (VISA). Interpretation
-  // depends on `method`.
-  string reference = 6;
-
-  // IBM 3624 only: 16-digit decimalization table.
-  optional string decimalization_table = 7;
-
-  // VISA PVV only: 1-digit PIN Verification Key Indicator (PVKI).
-  optional string pvki = 8;
+  // PIN Working Key (PWK) under LMK. The entered PIN block is encrypted under this key.
+  bytes pwk = 5;
 }
 
 message VerifyPinResponse {
@@ -285,7 +270,7 @@ message VerifyArqcAndGenerateArpcResponse {
   bytes issuer_authentication_data = 3;
 
   // Optional ready-to-place TLV: tag 91 + length + value.
-  bytes issuer_authentication_data_tlv = 4;
+  optional bytes issuer_authentication_data_tlv = 4;
 
   // KCV of the key used (for verification / audit).
   string key_check_value = 5;
@@ -293,3 +278,39 @@ message VerifyArqcAndGenerateArpcResponse {
   // Structured failure reason; CRYPTOGRAM_FAILURE_REASON_NONE on success.
   CryptogramFailureReason failure_reason = 10;
 }
+
+
+// Generate key pair
+// store private key encrypted under LMK and a tag generated using the pubkey 
+// send the public key
+
+// ---------------------------------------------------------------------------
+// Generate key pair
+// ---------------------------------------------------------------------------
+
+message GenerateRSAKeyPairRequest {
+  // Public exponent for RSA (e.g., "010001" for 65537), it must be less than the value of the modulus, 
+  //or constant indicating the curve name for ECC (e.g., "2B81040023" for p-521).
+  string public_exponent_or_curve = 2;
+
+  // Size of the modulus in bits for RSA (e.g., 2048, 3072, 4096), 
+  // empty for ECC
+  string size_modulus = 3;
+}
+
+message GenerateRSAKeyPairResponse {
+  // Public key in AKB format.
+  bytes public_key = 1;
+
+  // Private key AKB format.
+  bytes private_key = 2;
+
+  // leftmost eight hexadecimal characters of either SHA-1 of the private key 
+  // or SHA-256 of the public key, depending on the key type.
+  string check_digits = 3;
+
+  // Optional key slot for the generated private key on the RSA table.
+  optional string key_slot = 4;
+
+}
+
