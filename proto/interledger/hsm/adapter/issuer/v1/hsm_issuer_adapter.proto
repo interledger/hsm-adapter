@@ -1,7 +1,7 @@
 // HSM Issuer Adapter: gRPC contract for issuer-side hardware security module operations.
 //
 // This file defines the issuer-side interface for the HSM Adapter. Each concrete
-// implementation (e.g., Atalla A1000 Payment HSM / Thales 10K) is provided by the ASE.
+// implementation (e.g., Atalla A1000 Payment HSM / Thales 10K) is provided by the FSP.
 //
 // Operations that are specific to the card issuer (as opposed to acquirer-
 // or processor-side use). Scoped to CVV/CVV2/iCVV generation and verification,
@@ -29,7 +29,7 @@ service HsmIssuerAdapterService {
   rpc ChangePin(ChangePinRequest) returns (ChangePinResponse);
 
   // AuthoriseTransaction performs a full issuer-side card authorization in a
-  // single call. The ASE owns the decision: it verifies the ARQC, optionally
+  // single call. The FSP owns the decision: it verifies the ARQC, optionally
   // verifies the PIN, applies business checks, decides the ARC and Auth Code,
   // and only then generates the ARPC bound to that decided ARC.
   //
@@ -175,10 +175,10 @@ message AuthoriseTransactionRequest {
   string icc_under_lmk = 1;
 
   // SRED TLV: decrypted transaction data as a TLV payload. Carries the
-  // transaction fields the ASE applies business checks against.
+  // transaction fields the FSP applies business checks against.
   bytes sred_tlv = 2;
 
-  // Optional PIN verification data. When omitted, the ASE authorizes on ARQC
+  // Optional PIN verification data. When omitted, the FSP authorizes on ARQC
   // + business checks alone (e.g. a no-PIN low-value contactless tap).
   optional PinVerificationData pin = 3;
 }
@@ -195,13 +195,13 @@ enum CryptogramFailureReason {
 }
 
 message AuthoriseTransactionResponse {
-  // Authorization Response Code, EMV tag 8A, decided by the ASE from ARQC
+  // Authorization Response Code, EMV tag 8A, decided by the FSP from ARQC
   // validity + PIN result + business checks. "00" approve, "05"/"55" decline.
   // Approvals and declines are returned from the same code path.
   string arc = 1;
 
   // Authorization Code / authorization identifier (EMV tag 89), issued by the
-  // ASE. Empty on decline paths where no Auth Code is assigned.
+  // FSP. Empty on decline paths where no Auth Code is assigned.
   string auth_code = 2;
 
   // Raw ARPC value, generated bound to the decided ARC (ARPC method 1).
