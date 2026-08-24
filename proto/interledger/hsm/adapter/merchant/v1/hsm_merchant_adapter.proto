@@ -1,7 +1,7 @@
 // HSM Merchant Adapter: gRPC contract for merchant-side hardware security module operations.
 //
 // This file defines the merchant-side interface for the HSM Adapter. Each concrete
-// implementation (e.g., Atalla A1000 Payment HSM / Thales 10K) is provided by the ASE.
+// implementation (e.g., Atalla A1000 Payment HSM / Thales 10K) is provided by the FSP.
 
 // TODO Need to add meta fields like correlation id for tracing purposes.
 
