@@ -165,19 +165,13 @@ enum PinBlockFormat {
   PIN_BLOCK_FORMAT_ISO_4 = 4; // ISO-4 (AES)
 }
 
-// PinVerificationMethod is the issuer PIN verification method (a card
-// personalisation choice, not dictated by the card scheme).
-enum PinVerificationMethod {
-  PIN_VERIFICATION_METHOD_UNSPECIFIED = 0;
-  PIN_VERIFICATION_METHOD_VISA_PVV = 1;             // Atalla 32#3 | Thales EC/DC
-  PIN_VERIFICATION_METHOD_IBM_3624_OFFSET = 2;      // Atalla 32#1 | Thales DA/DB
-  PIN_VERIFICATION_METHOD_PIN_BLOCK_COMPARISON = 3; // Atalla 32#8 | Thales BC/BD
-}
-
 // PinVerificationData carries the material needed to verify a cardholder PIN
 // during authorization. The common fields describe the entered PIN block and
 // the key it is encrypted under; the method-specific reference material (the
 // stored value and its verification key) is carried in the `reference` oneof.
+// The set `reference` case selects the verification method — Visa PVV
+// (Atalla 32#3 | Thales EC/DC), IBM 3624 offset (Atalla 32#1 | Thales DA/DB),
+// or PIN-block comparison (Atalla 32#8 | Thales BC/BD).
 // The PAN is taken from the SRED TLV (PVV/offset and ISO-0/3/4 PIN blocks are
 // PAN-bound).
 message PinVerificationData {
@@ -192,13 +186,12 @@ message PinVerificationData {
   // entered_pin_block.
   bytes pek_under_lmk = 3;
 
-  // Verification method and its method-specific reference material.
-  PinVerificationMethod method = 4;
-  // At most, one can be set. Zero can also be set (optional):
+  // Method-specific reference material. The set case selects the verification
+  // method; exactly one should be set when PIN verification is requested.
   oneof reference {
-    VisaPvvReference visa_pvv = 5;
-    Ibm3624OffsetReference ibm_3624_offset = 6;
-    PinBlockComparisonReference pin_block_comparison = 7;
+    VisaPvvReference visa_pvv = 4;// Atalla 32#3 | Thales EC/DC
+    Ibm3624OffsetReference ibm_3624_offset = 5;// Atalla 32#1 | Thales DA/DB
+    PinBlockComparisonReference pin_block_comparison = 6;// Atalla 32#8 | Thales BC/BD
   }
 }
 
