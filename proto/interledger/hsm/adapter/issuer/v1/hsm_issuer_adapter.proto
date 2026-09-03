@@ -154,20 +154,83 @@ message ChangePinResponse {
 // Authorize transaction processing (ARQC/ARPC SRED and optional PIN)
 // ---------------------------------------------------------------------------
 
+// PinBlockFormat is the ISO 9564 format of the entered PIN block.
+// Atalla cmd 32 field 2: ISO_0 = "1", ISO_3 = "8", ISO_4 = "D".
+// Thales PIN block format code: ISO_0 = "01", ISO_3 = "47", ISO_4 = "48".
+enum PinBlockFormat {
+  PIN_BLOCK_FORMAT_UNSPECIFIED = 0;
+  PIN_BLOCK_FORMAT_ISO_0 = 1; // ANSI / ISO-0 (3DES)
+  PIN_BLOCK_FORMAT_ISO_1 = 2; // ISO-1
+  PIN_BLOCK_FORMAT_ISO_3 = 3; // ISO-3
+  PIN_BLOCK_FORMAT_ISO_4 = 4; // ISO-4 (AES)
+}
+
 // PinVerificationData carries the material needed to verify a cardholder PIN
-// during authorization.
+// during authorization. The common fields describe the entered PIN block and
+// the key it is encrypted under; the method-specific reference material (the
+// stored value and its verification key) is carried in the `reference` oneof.
+// The set `reference` case selects the verification method — Visa PVV
+// (Atalla 32#3 | Thales EC/DC), IBM 3624 offset (Atalla 32#1 | Thales DA/DB),
+// or PIN-block comparison (Atalla 32#8 | Thales BC/BD).
+// The PAN is taken from the SRED TLV (PVV/offset and ISO-0/3/4 PIN blocks are
+// PAN-bound).
 message PinVerificationData {
-  // PIN block stored by issuer-api, to be verified against the entered PIN.
+  // Entered PIN block from the POS terminal, translated by merchant-api and
+  // encrypted under pek_under_lmk.
+  bytes entered_pin_block = 1;
+
+  // Format of entered_pin_block; the adapter maps it to each HSM's format code.
+  PinBlockFormat pin_block_format = 2;
+
+  // PIN Encryption Key (PEK / PWK / ZPK / TPK) under LMK; encrypts
+  // entered_pin_block.
+  bytes pek_under_lmk = 3;
+
+  // Method-specific reference material. The set case selects the verification
+  // method; exactly one should be set when PIN verification is requested.
+  oneof reference {
+    VisaPvvReference visa_pvv = 4;// Atalla 32#3 | Thales EC/DC
+    Ibm3624OffsetReference ibm_3624_offset = 5;// Atalla 32#1 | Thales DA/DB
+    PinBlockComparisonReference pin_block_comparison = 6;// Atalla 32#8 | Thales BC/BD
+  }
+}
+
+// VisaPvvReference: recompute the PVV and compare it to the stored value.
+message VisaPvvReference {
+  // PIN Verification Key (PVK pair) under LMK.
+  bytes pvk_under_lmk = 1;
+
+  // Stored reference PIN Verification Value (kept as a string to preserve
+  // leading zeros, e.g. "0177").
+  string pvv = 2;
+
+  // PIN Verification Key Indicator (0-6).
+  uint32 pvki = 3;
+}
+
+// Ibm3624OffsetReference: recompute the IBM 3624 offset and compare it.
+message Ibm3624OffsetReference {
+  // PIN Verification Key (PVK) under LMK.
+  bytes pvk_under_lmk = 1;
+
+  // Stored reference PIN offset.
+  string offset = 2;
+
+  // 16-hex decimalization table.
+  string decimalization_table = 3;
+
+  // Verified PIN length.
+  uint32 pin_length = 4;
+}
+
+// PinBlockComparisonReference: decrypt and compare against a stored reference
+// PIN block.
+message PinBlockComparisonReference {
+  // Stored reference PIN block.
   bytes valid_pin_block = 1;
 
-  // PIN Block Key (PBK) under LMK. valid_pin_block is encrypted under this key.
+  // PIN Block Key (PBK) under LMK; valid_pin_block is encrypted under this key.
   bytes pbk_under_lmk = 2;
-
-  // PIN block entered at the POS terminal, translated by merchant-api under PWK.
-  bytes entered_pin_block = 3;
-
-  // PIN Working Key (PWK) under LMK. entered_pin_block is encrypted under this key.
-  bytes pwk = 4;
 }
 
 message AuthoriseTransactionRequest {
