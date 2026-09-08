@@ -141,22 +141,37 @@ message TranslatePinResponse {
 // ---------------------------------------------------------------------------
 
 message DukptDecryptRequest {
-  // RAW BDK under LMK or lookup alias.
+  // AES DUKPT Base Derivation Key: key material under the HSM's LMK/MFK (Atalla
+  // AKB token or Thales key block) or a lookup alias. The session data key is
+  // derived from this BDK and the KSN per ANSI X9.24.
   string bdk = 1;
 
-  // SRED-encrypted data.
+  // SRED-encrypted data to decrypt.
   bytes cipher_data = 2;
 
-  // Initialization vector.
+  // Initialization vector, used for CBC and the other chaining modes; empty
+  // and ignored for ECB (the `cipher` field selects the mode). 16 bytes for
+  // AES DUKPT.
   bytes iv = 3;
 
-  // Session DUKPT key KSN.
+  // Session DUKPT Key Serial Number, hex-encoded. 12 bytes (24 hex characters)
+  // for AES DUKPT.
   string ksn = 4;
+
+  // Symmetric cipher and mode the data was encrypted under; selects the HSM
+  // decryption mode (e.g. AES-CBC). GCM/AEAD is not supported for DUKPT data
+  // decryption on the target HSMs.
+  SymmetricCipher cipher = 5;
 }
 
 message DukptDecryptResponse {
   // Decrypted SRED data.
   bytes data = 1;
+
+  // Ending IV returned by the HSM, used as the input IV when decrypting the
+  // next segment of a ciphertext that spans multiple blocks. Empty for
+  // single-segment data.
+  optional bytes ending_iv = 2;
 }
 
 // ---------------------------------------------------------------------------
