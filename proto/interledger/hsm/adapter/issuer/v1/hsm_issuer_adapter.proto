@@ -46,6 +46,14 @@ service HsmIssuerAdapterService {
   // inside the HSM. The key is returned as a working key encrypted under
   // the LMK/MFK, ready to be stored by issuer-api and referenced by
   rpc GenerateEmvIccKey(GenerateEmvIccKeyRequest) returns (GenerateEmvIccKeyResponse);
+
+  // ExportWorkingKey exports a working key (e.g. PWK) as a TR-31 key block
+  // encrypted under the Zone Master Key (ZMK), for sharing with merchant-api.
+  rpc ExportWorkingKey(ExportWorkingKeyRequest) returns (ExportWorkingKeyResponse);
+
+  // ImportWorkingKey imports a working key (e.g. PWK) received from
+  // merchant-api as a TR-31 key block under the ZMK, and returns it under LMK.
+  rpc ImportWorkingKey(ImportWorkingKeyRequest) returns (ImportWorkingKeyResponse);
 }
 
 // CvvVariant distinguishes between CVV, CVV2 and iCVV.
@@ -349,5 +357,65 @@ message GenerateEmvIccKeyResponse {
 
   // Check digits of the generated key.
   string check_digits = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Export Working Key (PWK)
+// ---------------------------------------------------------------------------
+
+// Tr31Version selects the TR-31 key block version / wrapping algorithm for
+// key export operations.
+//   Version D → AES KBPK
+//   Version A/B/C → 3DES KBPK
+enum Tr31Version {
+  TR31_VERSION_UNSPECIFIED = 0;
+  TR31_VERSION_D = 1;   // AES KBPK
+  TR31_VERSION_ABC = 2; // 3DES KBPK (A, B, or C negotiated by HSM)
+}
+
+message ExportWorkingKeyRequest {
+  // KBPK / ZMK under LMK that will wrap the exported key block (key token).
+  string kek_zmk = 1;
+
+  // Working key under LMK to be exported (key token).
+  string working_key_under_lmk = 2;
+
+  // Expected KCV of the working key (for verification).
+  optional string working_key_kcv = 3;
+
+  // TR-31 version / wrapping algorithm.
+  Tr31Version tr31_version = 4;
+}
+
+message ExportWorkingKeyResponse {
+  // Exported TR-31 key block, wrapped per the requested tr31_version.
+  bytes working_key_tr31 = 1;
+
+  // KCV of the exported working key.
+  string working_key_kcv = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Import Working Key (PWK)
+// ---------------------------------------------------------------------------
+
+message ImportWorkingKeyRequest {
+  // ZMK under LMK that wraps the inbound TR-31 key block (key token).
+  string kek_zmk = 1;
+
+  // Working key in TR-31 key block format.
+  bytes working_key_tr31 = 2;
+
+  // Expected KCV of the working key (for verification). Issuer-api compares
+  // this against its active PWK KCV and only imports when they differ.
+  string working_key_kcv = 3;
+}
+
+message ImportWorkingKeyResponse {
+  // KCV of the imported working key (under LMK).
+  string working_key_under_lmk_kcv = 1;
+
+  // Imported working key under LMK/MFK.
+  string working_key_under_lmk = 2;
 }
 
