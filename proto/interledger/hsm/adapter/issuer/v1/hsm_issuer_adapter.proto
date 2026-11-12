@@ -19,13 +19,15 @@ service HsmIssuerAdapterService {
   rpc GenerateCvv(GenerateCvvRequest) returns (GenerateCvvResponse);
 
   // GeneratePin generates a new cardholder PIN (random or IBM 3624 derived),
-  // returns it as an encrypted PIN block under the supplied PWK, and
-  // optionally computes the PIN verification value (offset or PVV).
+  // returns it as an encrypted PIN block under the supplied PWK, and computes
+  // the PIN verification reference (IBM 3624 offset or Visa PVV) that
+  // issuer-api stores and later passes to AuthoriseTransaction.
   rpc GeneratePin(GeneratePinRequest) returns (GeneratePinResponse);
 
-  // ChangePin changes the cardholder PIN stored in the HSM. The new PIN is
-  // supplied encrypted under the client-hsm key (PMK). The HSM returns the
-  // new PIN block encrypted under the PWK for storage in issuer-api.
+  // ChangePin verifies the cardholder's current PIN against the stored
+  // reference (IBM 3624 offset or Visa PVV) and, when it matches, returns the
+  // reference of the new PIN for issuer-api to store. Nothing is stored in the
+  // HSM, and no PIN block is returned.
   rpc ChangePin(ChangePinRequest) returns (ChangePinResponse);
 
   // AuthoriseTransaction performs a full issuer-side card authorization in a
@@ -94,16 +96,22 @@ enum PinGenerationMethod {
   PIN_GENERATION_METHOD_IBM_3624 = 2;    // IBM 3624 natural PIN derived from PAN.
 }
 
+// The verification reference GeneratePin returns is selected by the optional
+// inputs, in the same way PinVerificationData selects the method by its
+// reference: `decimalization_table` selects an IBM 3624 offset and `pvki`
+// selects a Visa PVV. Exactly one of the two must be set, together with
+// `pvk_under_lmk`.
 message GeneratePinRequest {
-  // PIN Generation Key (PGK) under LMK used to derive or encrypt the PIN.
-  string pgk_under_lmk = 1;
+  // PIN Generation Key (PGK) under LMK, for HSMs that derive or encrypt the
+  // PIN with a separate key. Not used by the Atalla AT1000.
+  optional string pgk_under_lmk = 1;
 
   // PIN Working Key (PWK) under LMK; the output PIN block is encrypted under
   // this key for transport to the caller.
   string pwk_under_lmk = 2;
 
   // Cardholder PAN (full). Required for IBM 3624 derivation and for PIN block
-  // formats that embed PAN digits (e.g. ISO 9564 format 0 / 3).
+  // formats that embed PAN digits (e.g. ISO 9564 format 0 / 3 / 4).
   string pan = 3;
 
   // Desired PIN length (4–12 digits). Ignored for IBM 3624 (length is derived).
@@ -112,27 +120,31 @@ message GeneratePinRequest {
   // PIN generation method.
   PinGenerationMethod method = 5;
 
-  // IBM 3624 only: 16-digit decimalization table (hex).
+  // 16-digit decimalization table. Required for an IBM 3624 offset reference
+  // (with either generation method) and for IBM 3624 PIN derivation.
   optional string decimalization_table = 6;
 
-  // PIN Verification Key (PVK) under LMK. When set, the response includes the
-  // verification value (offset or PVV) ready for card-personalisation.
+  // PIN Verification Key (PVK) under LMK. Required: the verification reference
+  // (offset or PVV) is computed under it.
   optional string pvk_under_lmk = 7;
 
-  // VISA PVV only: 1-digit PIN Verification Key Indicator (PVKI).
+  // VISA PVV only: 1-digit PIN Verification Key Indicator (PVKI). Selects a
+  // Visa PVV reference.
   optional string pvki = 8;
+
+  // ISO 9564 format of the returned PIN block; the adapter maps it to each
+  // HSM's format code. Unspecified means ISO-4 (AES).
+  PinBlockFormat pin_block_format = 9;
 }
 
 message GeneratePinResponse {
   // Encrypted PIN block (ISO 9564) under PWK.
   bytes pin_block = 1;
 
-  // IBM 3624 PIN offset. Populated when pvk_under_lmk was supplied and method
-  // is IBM_3624.
+  // IBM 3624 PIN offset. Populated when decimalization_table was supplied.
   optional string pin_offset = 2;
 
-  // VISA PVV. Populated when pvk_under_lmk was supplied and method is RANDOM
-  // with a VISA PVV key.
+  // VISA PVV. Populated when pvki was supplied.
   optional string pvv = 3;
 }
 
@@ -140,22 +152,47 @@ message GeneratePinResponse {
 // Change PIN
 // ---------------------------------------------------------------------------
 
+// ChangePinRequest carries the cardholder's current PIN and new PIN, both
+// encrypted under pek_under_lmk in the same format, and the stored reference
+// of the current PIN. The set `reference` case selects the method — IBM 3624
+// offset (Atalla 32#2 then 159 | Thales DA/DB then DE) or Visa PVV
+// (Atalla 37#3 | Thales CU).
 message ChangePinRequest {
+  // Current PIN as entered by the cardholder, encrypted under pek_under_lmk.
+  bytes old_pin_block = 1;
 
-  // Encrypted PIN block stored by issuer-api
-  bytes valid_pin_block= 1;
+  // New PIN, encrypted under pek_under_lmk.
+  bytes new_pin_block = 2;
 
-  // Encrypted PIN block under client-hsm key.
-  // This is the new PIN to be stored in the HSM.
-  bytes pin_block_under_client_key = 2;
+  // Format of both PIN blocks; the adapter maps it to each HSM's format code.
+  PinBlockFormat pin_block_format = 3;
 
-  // Cardholder PAN. Used by ISO 9564 PIN block formats that embed PAN digits.
-  string pan = 3;
+  // PIN Encryption Key (PEK / PWK) under LMK; encrypts both PIN blocks.
+  bytes pek_under_lmk = 4;
+
+  // Cardholder PAN (full). The references and the ISO-0/3/4 PIN blocks are
+  // PAN-bound.
+  string pan = 5;
+
+  // Stored reference of the current PIN. Exactly one must be set; the new
+  // reference is returned for the same method.
+  oneof reference {
+    VisaPvvReference visa_pvv = 6;
+    Ibm3624OffsetReference ibm_3624_offset = 7;
+  }
 }
 
 message ChangePinResponse {
-  // New PIN block encrypted under PWK.
-  bytes new_valid_pin_block = 1;
+  // True if the current PIN matched the stored reference. When false, no new
+  // reference is returned and the stored one stays valid.
+  bool old_pin_valid = 1;
+
+  // New VISA PVV. Populated when old_pin_valid and the reference was visa_pvv.
+  optional string new_pvv = 2;
+
+  // New IBM 3624 PIN offset. Populated when old_pin_valid and the reference
+  // was ibm_3624_offset.
+  optional string new_pin_offset = 3;
 }
 
 // ---------------------------------------------------------------------------
@@ -178,7 +215,7 @@ enum PinBlockFormat {
 // the key it is encrypted under; the method-specific reference material (the
 // stored value and its verification key) is carried in the `reference` oneof.
 // The set `reference` case selects the verification method — Visa PVV
-// (Atalla 32#3 | Thales EC/DC), IBM 3624 offset (Atalla 32#1 | Thales DA/DB),
+// (Atalla 32#3 | Thales EC/DC), IBM 3624 offset (Atalla 32#2 | Thales DA/DB),
 // or PIN-block comparison (Atalla 32#8 | Thales BC/BD).
 // The PAN is taken from the SRED TLV (PVV/offset and ISO-0/3/4 PIN blocks are
 // PAN-bound).
@@ -198,7 +235,7 @@ message PinVerificationData {
   // method; exactly one should be set when PIN verification is requested.
   oneof reference {
     VisaPvvReference visa_pvv = 4;// Atalla 32#3 | Thales EC/DC
-    Ibm3624OffsetReference ibm_3624_offset = 5;// Atalla 32#1 | Thales DA/DB
+    Ibm3624OffsetReference ibm_3624_offset = 5;// Atalla 32#2 | Thales DA/DB
     PinBlockComparisonReference pin_block_comparison = 6;// Atalla 32#8 | Thales BC/BD
   }
 }
@@ -246,7 +283,10 @@ message AuthoriseTransactionRequest {
   string icc_under_lmk = 1;
 
   // SRED TLV: decrypted transaction data as a TLV payload. Carries the
-  // transaction fields the FSP applies business checks against.
+  // transaction fields the FSP applies business checks against, and the data
+  // the card MACed into its ARQC: CDOL1 data (DF31), AIP (82), ATC (9F36),
+  // Issuer Application Data (9F10) and the cardholder wallet address (DFF101).
+  // The ILF card's ARQC covers CDOL1 || SHA-256(DFF101) || AIP || ATC || IAD.
   bytes sred_tlv = 2;
 
   // Optional PIN verification data. When omitted, the FSP authorizes on ARQC
@@ -275,12 +315,13 @@ message AuthoriseTransactionResponse {
   // FSP. Empty on decline paths where no Auth Code is assigned.
   string auth_code = 2;
 
-  // Raw ARPC value, generated bound to the decided ARC (ARPC method 1).
+  // Raw ARPC value (EMV Book 2 ARPC method 2, 4 bytes), bound to the Card
+  // Status Update built from the decided ARC.
   // Not populated on decline paths that assign no approving ARPC.
   bytes arpc = 3;
 
-  // Issuer Authentication Data, EMV tag 91. Usually ARPC alone or
-  // ARPC + ARC / proprietary bytes depending on scheme.
+  // Issuer Authentication Data, EMV tag 91. For ARPC method 2:
+  // ARPC (4) || CSU (4) [|| Proprietary Authentication Data].
   bytes issuer_authentication_data = 4;
 
   // Optional ready-to-place TLV: tag 91 + length + value.
